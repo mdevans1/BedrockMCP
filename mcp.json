@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "bedrock-server-manager": {
+      "command": "start_bedrock_mcp.sh",
+      "args": []
+    }
+  }
+} 
