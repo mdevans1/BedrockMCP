@@ -1,6 +1,6 @@
 # Bedrock Server Manager MCP Server
 
-A comprehensive Model Context Protocol (MCP) server that provides natural language access to [Bedrock Server Manager](https://github.com/EnviousData/BedrockServerManager) functionality. This server enables you to manage your Minecraft Bedrock Edition servers through AI assistants like Claude Desktop using simple conversational commands.
+A comprehensive Model Context Protocol (MCP) server that provides natural language access to [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager/) functionality. This server enables you to manage your Minecraft Bedrock Edition servers through AI assistants like Claude Desktop using simple conversational commands.
 
 ## 🚀 Features
 
@@ -32,7 +32,7 @@ A comprehensive Model Context Protocol (MCP) server that provides natural langua
 ## 📋 Prerequisites
 
 - Python 3.8 or higher
-- Access to a running [Bedrock Server Manager](https://github.com/EnviousData/BedrockServerManager) instance
+- Access to a running [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager/) instance
 - Valid credentials for your Bedrock Server Manager
 
 ## 🛠️ Installation
@@ -290,7 +290,7 @@ chmod +x start_bedrock_mcp.sh
 
 ## 🤝 Contributing
 
-This project interfaces with [Bedrock Server Manager](https://github.com/EnviousData/BedrockServerManager). For issues related to the server manager itself, please refer to that project's repository.
+This project interfaces with [Bedrock Server Manager](https://github.com/DMedina559/bedrock-server-manager/). For issues related to the server manager itself, please refer to that project's repository.
 
 ## 📄 License
 
