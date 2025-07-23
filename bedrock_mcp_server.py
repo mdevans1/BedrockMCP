@@ -53,7 +53,7 @@ async def login() -> bool:
     """Authenticate with the Bedrock Server Manager API and obtain a JWT token.
     
     This function:
-    1. Sends credentials to the login endpoint
+    1. Sends credentials to the /auth/token endpoint (form data)
     2. Stores the JWT token in the global access_token variable
     3. Returns True if login was successful, False otherwise
     
@@ -63,7 +63,7 @@ async def login() -> bool:
     global access_token
     
     headers = {
-        "Content-Type": "application/json"
+        "Content-Type": "application/x-www-form-urlencoded"
     }
     data = {
         "username": USERNAME,
@@ -73,9 +73,9 @@ async def login() -> bool:
     async with httpx.AsyncClient() as client:
         try:
             response = await client.post(
-                f"{BEDROCK_API_BASE}/api/login",
+                f"{BEDROCK_API_BASE}/auth/token",
                 headers=headers,
-                json=data,
+                data=data,
                 timeout=30.0
             )
             debug_response(response)
@@ -552,6 +552,36 @@ async def restore_server(server_name: str, restore_type: str, backup_file: Optio
     return f"Server '{server_name}' restore initiated (type: {restore_type}). Status: {response.get('message', 'Unknown')}"
 
 @mcp.tool()
+async def restore_server_spec(server_name: str, restore_type: str, backup_file: str = None) -> str:
+    """Restore a server from a backup using the correct types and payload as per OpenAPI spec.
+    Args:
+        server_name: Name of the server to restore
+        restore_type: Type of restore ('world', 'properties', 'allowlist', 'permissions', 'all')
+        backup_file: Required for all types except 'all'
+    Returns:
+        str: Status message about the restore operation
+    """
+    valid_types = ["world", "properties", "allowlist", "permissions", "all"]
+    if restore_type not in valid_types:
+        return f"Invalid restore_type '{restore_type}'. Must be one of: {valid_types}"
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/restore/action"
+    payload = {"restore_type": restore_type}
+    if restore_type != "all":
+        if not backup_file:
+            return f"backup_file is required when restore_type is '{restore_type}'"
+        payload["backup_file"] = backup_file
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to restore server '{server_name}' with type '{restore_type}': {str(e)}"
+
+@mcp.tool()
 async def get_server_process_info(server_name: str) -> str:
     """Get detailed process information for a running server.
     
@@ -599,6 +629,32 @@ async def list_server_backups(server_name: str, backup_type: str = "world") -> s
         backup_list.append(f"  - {backup}")
     
     return "\n".join(backup_list)
+
+@mcp.tool()
+async def list_server_backups_spec(server_name: str, backup_type: str = "world") -> str:
+    """List available backup filenames for a server using the correct endpoint path as per OpenAPI spec.
+    Args:
+        server_name: Name of the server to list backups for
+        backup_type: Type of backup to list ('world', 'config', etc.)
+    Returns:
+        str: Formatted list of backup filenames or error message
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/backup/list/{backup_type}"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            backups = data.get("backups", [])
+            if not backups:
+                return f"No {backup_type} backups found for server '{server_name}'."
+            backup_list = [f"{backup_type.title()} backups for '{server_name}':"]
+            for backup in backups:
+                backup_list.append(f"  - {backup}")
+            return "\n".join(backup_list)
+        except Exception as e:
+            return f"Unable to fetch backup list for server '{server_name}': {str(e)}"
 
 @mcp.tool()
 async def list_available_worlds() -> str:
@@ -674,7 +730,7 @@ async def add_players_to_global_list(player_names: list[str]) -> str:
     data = await make_bedrock_request(
         "/api/players/add",
         method="POST",
-        data={"player_names": player_names}
+        data={"players": player_names}
     )
     if not data:
         return f"Failed to add players to global list."
@@ -775,6 +831,30 @@ async def trigger_plugin_event(event_name: str, event_data: dict = None) -> str:
         return f"Failed to trigger event '{event_name}'."
     
     return f"Event '{event_name}' triggered successfully. Status: {data.get('message', 'Event triggered')}"
+
+@mcp.tool()
+async def trigger_plugin_event_payload(event_name: str, payload: dict = None) -> str:
+    """Trigger a custom plugin event via /api/plugins/trigger_event (POST), using {"event_name": ..., "payload": ...}.
+    Args:
+        event_name: Name of the event to trigger
+        payload: Optional dictionary payload for the event
+    Returns:
+        str: Status message about the event trigger operation
+    """
+    url = f"{BEDROCK_API_BASE}/api/plugins/trigger_event"
+    data = {"event_name": event_name}
+    if payload is not None:
+        data["payload"] = payload
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=data, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to trigger plugin event: {str(e)}"
 
 @mcp.tool()
 async def get_player_permissions(server_name: str) -> str:
@@ -1207,6 +1287,35 @@ async def configure_service(server_name: str, service_config: dict) -> str:
     return f"{message} for server {server_name}"
 
 @mcp.tool()
+async def update_service_settings(server_name: str, autoupdate: bool = None, autostart: bool = None) -> str:
+    """Update service settings for a server via /api/server/{server_name}/service/update (POST).
+    Args:
+        server_name: Name of the server
+        autoupdate: Optional, enable/disable autoupdate
+        autostart: Optional, enable/disable autostart
+    Returns:
+        str: Status message about the update operation
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/service/update"
+    payload = {}
+    if autoupdate is not None:
+        payload["autoupdate"] = autoupdate
+    if autostart is not None:
+        payload["autostart"] = autostart
+    if not payload:
+        return "At least one of autoupdate or autostart must be provided."
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to update service settings: {str(e)}"
+
+@mcp.tool()
 async def prune_downloads() -> str:
     """Prune the download cache."""
     data = await make_bedrock_request("/api/downloads/prune", method="POST")
@@ -1455,6 +1564,305 @@ async def delete_windows_task(server_name: str, task_name: str) -> str:
     if not response:
         return "Failed to send delete windows task command."
     return response.get("message", "Delete windows task command sent.")
+
+@mcp.tool()
+async def api_logout() -> str:
+    """Logout via /auth/logout endpoint as per OpenAPI spec.
+    Returns:
+        str: Success or error message
+    """
+    url = f"{BEDROCK_API_BASE}/auth/logout"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            return "Logout successful."
+        except Exception as e:
+            return f"Logout failed: {str(e)}"
+
+@mcp.tool()
+async def get_all_settings() -> str:
+    """Get all global application settings via /api/settings (GET)."""
+    url = f"{BEDROCK_API_BASE}/api/settings"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to get settings: {str(e)}"
+
+@mcp.tool()
+async def set_setting(key: str, value: Any) -> str:
+    """Set a specific global application setting via /api/settings (POST)."""
+    url = f"{BEDROCK_API_BASE}/api/settings"
+    payload = {"key": key, "value": value}
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to set setting: {str(e)}"
+
+@mcp.tool()
+async def get_themes() -> str:
+    """Get available themes via /api/themes (GET)."""
+    url = f"{BEDROCK_API_BASE}/api/themes"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to get themes: {str(e)}"
+
+@mcp.tool()
+async def reload_settings() -> str:
+    """Reload global application settings via /api/settings/reload (POST)."""
+    url = f"{BEDROCK_API_BASE}/api/settings/reload"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to reload settings: {str(e)}"
+
+@mcp.tool()
+async def select_restore_backup_type(server_name: str, restore_type: str) -> str:
+    """Select a restore type for a server via /api/server/{server_name}/restore/select_backup_type (POST).
+    Args:
+        server_name: Name of the server
+        restore_type: Type of restore (e.g., 'world', 'properties', etc.)
+    Returns:
+        str: JSON response from the API or error message
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/restore/select_backup_type"
+    payload = {"restore_type": restore_type}
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to select restore backup type: {str(e)}"
+
+@mcp.tool()
+async def get_world_icon(server_name: str, save_path: str = None) -> str:
+    """Fetch the world icon image for a server via /api/server/{server_name}/world/icon (GET).
+    Args:
+        server_name: Name of the server
+        save_path: Optional path to save the image file
+    Returns:
+        str: Status message about the fetch operation
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/world/icon"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            if save_path:
+                with open(save_path, "wb") as f:
+                    f.write(response.content)
+                return f"World icon image saved to {save_path}"
+            return "World icon image fetched successfully (binary data not shown)."
+        except Exception as e:
+            return f"Failed to fetch world icon: {str(e)}"
+
+@mcp.tool()
+async def get_panorama_image_file(save_path: str = None) -> str:
+    """Fetch the panorama image via /api/panorama (GET).
+    Args:
+        save_path: Optional path to save the image file
+    Returns:
+        str: Status message about the fetch operation
+    """
+    url = f"{BEDROCK_API_BASE}/api/panorama"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            if save_path:
+                with open(save_path, "wb") as f:
+                    f.write(response.content)
+                return f"Panorama image saved to {save_path}"
+            return "Panorama image fetched successfully (binary data not shown)."
+        except Exception as e:
+            return f"Failed to fetch panorama image: {str(e)}"
+
+@mcp.tool()
+async def set_plugin_enabled(plugin_name: str, enabled: bool) -> str:
+    """Enable or disable a plugin via /api/plugins/{plugin_name} (POST), using {"enabled": bool} payload.
+    Args:
+        plugin_name: Name of the plugin
+        enabled: True to enable, False to disable
+    Returns:
+        str: Status message about the plugin toggle operation
+    """
+    url = f"{BEDROCK_API_BASE}/api/plugins/{plugin_name}"
+    payload = {"enabled": enabled}
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to set plugin enabled: {str(e)}"
+
+@mcp.tool()
+async def add_players(players: list[str]) -> str:
+    """Add players to the global player list via /api/players/add, using {"players": ["PlayerOne:123xuid", ...]} payload as per spec.
+    Args:
+        players: List of player strings in 'gamertag:xuid' format
+    Returns:
+        str: Status message about the add operation
+    """
+    url = f"{BEDROCK_API_BASE}/api/players/add"
+    payload = {"players": players}
+    headers = {"Content-Type": "application/json"}
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.post(url, headers=headers, json=payload, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            result = response.json()
+            return json.dumps(result, indent=2)
+        except Exception as e:
+            return f"Failed to add players: {str(e)}"
+
+@mcp.tool()
+async def list_available_worlds_spec() -> str:
+    """List available world files that can be installed on servers, using the 'files' key as per OpenAPI spec."""
+    url = f"{BEDROCK_API_BASE}/api/content/worlds"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            files = data.get("files", [])
+            if not files:
+                return "No world files available."
+            world_list = ["Available worlds:"]
+            for world in files:
+                world_list.append(f"  - {world}")
+            return "\n".join(world_list)
+        except Exception as e:
+            return f"Unable to fetch available worlds: {str(e)}"
+
+@mcp.tool()
+async def list_available_addons_spec() -> str:
+    """List available addon files that can be installed on servers, using the 'files' key as per OpenAPI spec."""
+    url = f"{BEDROCK_API_BASE}/api/content/addons"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            files = data.get("files", [])
+            if not files:
+                return "No addon files available."
+            addon_list = ["Available addons:"]
+            for addon in files:
+                addon_list.append(f"  - {addon}")
+            return "\n".join(addon_list)
+        except Exception as e:
+            return f"Unable to fetch available addons: {str(e)}"
+
+@mcp.tool()
+async def get_server_status_spec(server_name: str) -> str:
+    """Get server running status using 'data.running' from the response as per OpenAPI spec.
+    Args:
+        server_name: Name of the server to check
+    Returns:
+        str: Status message about whether the server is running
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/status"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            running = data.get("data", {}).get("running")
+            if running is True:
+                return f"Server '{server_name}' is running."
+            elif running is False:
+                return f"Server '{server_name}' is not running."
+            else:
+                return f"Could not determine running status for server '{server_name}'."
+        except Exception as e:
+            return f"Unable to fetch status for server '{server_name}': {str(e)}"
+
+@mcp.tool()
+async def get_server_version_spec(server_name: str) -> str:
+    """Retrieve the installed version of a specific server using 'data.version' from the response as per OpenAPI spec.
+    Args:
+        server_name: Name of the server to check
+    Returns:
+        str: Formatted string containing the server version or error message
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/version"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            version = data.get("data", {}).get("version")
+            if not version:
+                return f"No version information found for server {server_name}."
+            return f"Server {server_name} version: {version}"
+        except Exception as e:
+            return f"Unable to fetch version for server {server_name}: {str(e)}"
+
+@mcp.tool()
+async def get_player_permissions_spec(server_name: str) -> str:
+    """Get player permissions for a server using 'data.permissions' as a list per OpenAPI spec.
+    Args:
+        server_name: Name of the server to get permissions for
+    Returns:
+        str: Formatted player permissions information or error message
+    """
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/permissions/get"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            permissions = data.get("data", {}).get("permissions", [])
+            if not permissions:
+                return f"No player permissions found for server '{server_name}'."
+            perm_list = [f"Player permissions for '{server_name}':"]
+            for perm in permissions:
+                name = perm.get("name", "Unknown")
+                xuid = perm.get("xuid", "Unknown")
+                level = perm.get("permission_level", "Unknown")
+                perm_list.append(f"  {name} (XUID: {xuid}): {level}")
+            return "\n".join(perm_list)
+        except Exception as e:
+            return f"Unable to fetch player permissions for server '{server_name}': {str(e)}"
 
 if __name__ == "__main__":
     # Initialize and run the server
