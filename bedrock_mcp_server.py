@@ -209,57 +209,28 @@ async def get_servers() -> str:
 
 @mcp.tool()
 async def get_server_status(server_name: str) -> str:
-    """Get detailed status information for a specific Bedrock server.
-    
-    This function retrieves and formats:
-    - Process information (PID, CPU, Memory, Uptime) if running
-    - Process status
-    
+    """Get server running status using 'data.running' from the response as per OpenAPI spec.
     Args:
         server_name: Name of the server to check
-    
     Returns:
-        str: Formatted string containing server status information.
-             Returns error message if unable to fetch status.
+        str: Status message about whether the server is running
     """
-    data = await make_bedrock_request(f"/api/server/{server_name}/status")
-    if not data:
-        return f"Unable to fetch status for server {server_name}."
-    
-    # The API returns data in the format:
-    # {
-    #     "status": "success",
-    #     "process_info": {
-    #         "pid": 12345,
-    #         "cpu_percent": 10.5,
-    #         "memory_mb": 512.5,
-    #         "uptime": "1:00:00"
-    #     }
-    # }
-    # OR if not running:
-    # {
-    #     "status": "success", 
-    #     "process_info": null,
-    #     "message": "Server 'name' is not running."
-    # }
-    
-    process_info = data.get("process_info")
-    if process_info is None:
-        # Server is not running
-        message = data.get("message", f"Server {server_name} is not running.")
-        return f"Server Status for {server_name}:\nRunning: No\n{message}"
-    
-    # Build a detailed status report for running server
-    status_report = [
-        f"Server Status for {server_name}:",
-        f"Running: Yes",
-        f"PID: {process_info.get('pid', 'Unknown')}",
-        f"CPU Usage: {process_info.get('cpu_percent', 'Unknown')}%",
-        f"Memory Usage: {process_info.get('memory_mb', 'Unknown')} MB",
-        f"Uptime: {process_info.get('uptime', 'Unknown')}"
-    ]
-    
-    return "\n".join(status_report)
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/status"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            running = data.get("data", {}).get("running")
+            if running is True:
+                return f"Server '{server_name}' is running."
+            elif running is False:
+                return f"Server '{server_name}' is not running."
+            else:
+                return f"Could not determine running status for server '{server_name}'."
+        except Exception as e:
+            return f"Unable to fetch status for server '{server_name}': {str(e)}"
 
 @mcp.tool()
 async def start_server(server_name: str) -> str:
@@ -349,30 +320,24 @@ async def send_command(server_name: str, command: str) -> str:
 @mcp.tool()
 async def get_allowlist(server_name: str) -> str:
     """Retrieve the current allowlist (whitelist) for a specific server.
-    
-    This function:
-    1. Fetches the allowlist from the server
-    2. Returns the formatted list of allowed players
-    
     Args:
         server_name: Name of the server to get allowlist for
-    
     Returns:
-        str: Formatted string containing the allowlist,
-             Error message if unable to fetch allowlist
+        str: Formatted string containing the allowlist, or error message if unable to fetch
     """
     data = await make_bedrock_request(f"/api/server/{server_name}/allowlist/get")
     if not data:
         return f"Unable to fetch allowlist for server {server_name}."
-    
-    allowlist = data.get("allowlist", [])
-    if not allowlist:
+    players = data.get("players", [])
+    if not players:
         return f"Allowlist for {server_name} is empty."
-    
     player_list = [f"Allowlist for {server_name}:"]
-    for player in allowlist:
-        player_list.append(f"  - {player}")
-    
+    for player in players:
+        # player is a dict with keys: name, xuid, ignoresPlayerLimit
+        name = player.get("name", "Unknown")
+        xuid = player.get("xuid", "Unknown")
+        ignores = player.get("ignoresPlayerLimit", False)
+        player_list.append(f"  - {name} (XUID: {xuid}){' [ignoresPlayerLimit]' if ignores else ''}")
     return "\n".join(player_list)
 
 @mcp.tool()
@@ -469,7 +434,7 @@ async def update_server_properties(server_name: str, properties: dict) -> str:
     data = await make_bedrock_request(
         f"/api/server/{server_name}/properties/set",
         method="POST",
-        data=properties
+        data={"properties": properties}
     )
     if not data:
         return f"Failed to update properties for server {server_name}."
@@ -516,43 +481,7 @@ async def backup_server(server_name: str, backup_type: str = "world", file_to_ba
     return response.get("message", f"{backup_type.title()} backup command sent.")
 
 @mcp.tool()
-async def restore_server(server_name: str, restore_type: str, backup_file: Optional[str] = None) -> str:
-    """Restore a server from a backup.
-    
-    Args:
-        server_name: Name of the server to restore
-        restore_type: Type of restore ('world', 'config', or 'all')
-        backup_file: Required for 'world' and 'config' restore types. Relative path to backup file
-    
-    Returns:
-        str: Status message about the restore operation
-    """
-    # Validate restore_type
-    valid_types = ["world", "config", "all"]
-    if restore_type not in valid_types:
-        return f"Invalid restore_type '{restore_type}'. Must be one of: {valid_types}"
-    
-    # Build request data
-    data = {"restore_type": restore_type}
-    
-    # Add backup_file if required
-    if restore_type in ["world", "config"]:
-        if not backup_file:
-            return f"backup_file is required when restore_type is '{restore_type}'"
-        data["backup_file"] = backup_file
-    
-    response = await make_bedrock_request(
-        f"/api/server/{server_name}/restore/action",
-        method="POST",
-        data=data
-    )
-    if not response:
-        return f"Failed to restore server '{server_name}' with type '{restore_type}'."
-    
-    return f"Server '{server_name}' restore initiated (type: {restore_type}). Status: {response.get('message', 'Unknown')}"
-
-@mcp.tool()
-async def restore_server_spec(server_name: str, restore_type: str, backup_file: str = None) -> str:
+async def restore_server(server_name: str, restore_type: str, backup_file: str = None) -> str:
     """Restore a server from a backup using the correct types and payload as per OpenAPI spec.
     Args:
         server_name: Name of the server to restore
@@ -607,31 +536,6 @@ async def get_server_process_info(server_name: str) -> str:
 
 @mcp.tool()
 async def list_server_backups(server_name: str, backup_type: str = "world") -> str:
-    """List available backup filenames for a server.
-    
-    Args:
-        server_name: Name of the server to list backups for
-        backup_type: Type of backup to list ('world', 'config', etc.)
-    
-    Returns:
-        str: Formatted list of backup filenames
-    """
-    data = await make_bedrock_request(f"/api/server/{server_name}/backups/list/{backup_type}")
-    if not data:
-        return f"Unable to fetch backup list for server '{server_name}'."
-    
-    backups = data.get("backups", [])
-    if not backups:
-        return f"No {backup_type} backups found for server '{server_name}'."
-    
-    backup_list = [f"{backup_type.title()} backups for '{server_name}':"]
-    for backup in backups:
-        backup_list.append(f"  - {backup}")
-    
-    return "\n".join(backup_list)
-
-@mcp.tool()
-async def list_server_backups_spec(server_name: str, backup_type: str = "world") -> str:
     """List available backup filenames for a server using the correct endpoint path as per OpenAPI spec.
     Args:
         server_name: Name of the server to list backups for
@@ -655,48 +559,6 @@ async def list_server_backups_spec(server_name: str, backup_type: str = "world")
             return "\n".join(backup_list)
         except Exception as e:
             return f"Unable to fetch backup list for server '{server_name}': {str(e)}"
-
-@mcp.tool()
-async def list_available_worlds() -> str:
-    """List available world files that can be installed on servers.
-    
-    Returns:
-        str: Formatted list of available world files
-    """
-    data = await make_bedrock_request("/api/content/worlds")
-    if not data:
-        return "Unable to fetch available worlds."
-    
-    worlds = data.get("worlds", [])
-    if not worlds:
-        return "No world files available."
-    
-    world_list = ["Available worlds:"]
-    for world in worlds:
-        world_list.append(f"  - {world}")
-    
-    return "\n".join(world_list)
-
-@mcp.tool()
-async def list_available_addons() -> str:
-    """List available addon files that can be installed on servers.
-    
-    Returns:
-        str: Formatted list of available addon files
-    """
-    data = await make_bedrock_request("/api/content/addons")
-    if not data:
-        return "Unable to fetch available addons."
-    
-    addons = data.get("addons", [])
-    if not addons:
-        return "No addon files available."
-    
-    addon_list = ["Available addons:"]
-    for addon in addons:
-        addon_list.append(f"  - {addon}")
-    
-    return "\n".join(addon_list)
 
 @mcp.tool()
 async def reset_world(server_name: str) -> str:
@@ -858,27 +720,31 @@ async def trigger_plugin_event_payload(event_name: str, payload: dict = None) ->
 
 @mcp.tool()
 async def get_player_permissions(server_name: str) -> str:
-    """Get player permissions for a server.
-    
+    """Get player permissions for a server using 'data.permissions' as a list per OpenAPI spec.
     Args:
         server_name: Name of the server to get permissions for
-    
     Returns:
-        str: Formatted player permissions information
+        str: Formatted player permissions information or error message
     """
-    data = await make_bedrock_request(f"/api/server/{server_name}/permissions/get")
-    if not data:
-        return f"Unable to fetch player permissions for server '{server_name}'."
-    
-    permissions = data.get("permissions", {})
-    if not permissions:
-        return f"No player permissions found for server '{server_name}'."
-    
-    perm_list = [f"Player permissions for '{server_name}':"]
-    for player, perms in permissions.items():
-        perm_list.append(f"  {player}: {perms}")
-    
-    return "\n".join(perm_list)
+    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/permissions/get"
+    async with httpx.AsyncClient() as client:
+        try:
+            response = await client.get(url, timeout=30.0)
+            debug_response(response)
+            response.raise_for_status()
+            data = response.json()
+            permissions = data.get("data", {}).get("permissions", [])
+            if not permissions:
+                return f"No player permissions found for server '{server_name}'."
+            perm_list = [f"Player permissions for '{server_name}':"]
+            for perm in permissions:
+                name = perm.get("name", "Unknown")
+                xuid = perm.get("xuid", "Unknown")
+                level = perm.get("permission_level", "Unknown")
+                perm_list.append(f"  {name} (XUID: {xuid}): {level}")
+            return "\n".join(perm_list)
+        except Exception as e:
+            return f"Unable to fetch player permissions for server '{server_name}': {str(e)}"
 
 @mcp.tool()
 async def get_server_version(server_name: str) -> str:
@@ -1222,7 +1088,7 @@ async def get_players() -> str:
     return "\n\n".join(player_list)
 
 @mcp.tool()
-async def update_player_permissions(server_name: str, permissions: dict) -> str:
+async def update_player_permissions(server_name: str, permissions: list[dict]) -> str:
     """Update the permission level for players on a Bedrock server.
     
     This function:
@@ -1231,8 +1097,7 @@ async def update_player_permissions(server_name: str, permissions: dict) -> str:
     
     Args:
         server_name: Name of the server
-        permissions: Dictionary mapping player XUIDs (strings) to permission levels.
-                    Valid levels: 'visitor', 'member', 'operator'
+        permissions: List of permission objects, each with xuid, name, and permission_level
     
     Returns:
         str: Success message if permissions updated successfully,
@@ -1750,7 +1615,7 @@ async def add_players(players: list[str]) -> str:
             return f"Failed to add players: {str(e)}"
 
 @mcp.tool()
-async def list_available_worlds_spec() -> str:
+async def list_available_worlds() -> str:
     """List available world files that can be installed on servers, using the 'files' key as per OpenAPI spec."""
     url = f"{BEDROCK_API_BASE}/api/content/worlds"
     async with httpx.AsyncClient() as client:
@@ -1770,7 +1635,7 @@ async def list_available_worlds_spec() -> str:
             return f"Unable to fetch available worlds: {str(e)}"
 
 @mcp.tool()
-async def list_available_addons_spec() -> str:
+async def list_available_addons() -> str:
     """List available addon files that can be installed on servers, using the 'files' key as per OpenAPI spec."""
     url = f"{BEDROCK_API_BASE}/api/content/addons"
     async with httpx.AsyncClient() as client:
@@ -1788,31 +1653,6 @@ async def list_available_addons_spec() -> str:
             return "\n".join(addon_list)
         except Exception as e:
             return f"Unable to fetch available addons: {str(e)}"
-
-@mcp.tool()
-async def get_server_status_spec(server_name: str) -> str:
-    """Get server running status using 'data.running' from the response as per OpenAPI spec.
-    Args:
-        server_name: Name of the server to check
-    Returns:
-        str: Status message about whether the server is running
-    """
-    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/status"
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, timeout=30.0)
-            debug_response(response)
-            response.raise_for_status()
-            data = response.json()
-            running = data.get("data", {}).get("running")
-            if running is True:
-                return f"Server '{server_name}' is running."
-            elif running is False:
-                return f"Server '{server_name}' is not running."
-            else:
-                return f"Could not determine running status for server '{server_name}'."
-        except Exception as e:
-            return f"Unable to fetch status for server '{server_name}': {str(e)}"
 
 @mcp.tool()
 async def get_server_version_spec(server_name: str) -> str:
@@ -1835,34 +1675,6 @@ async def get_server_version_spec(server_name: str) -> str:
             return f"Server {server_name} version: {version}"
         except Exception as e:
             return f"Unable to fetch version for server {server_name}: {str(e)}"
-
-@mcp.tool()
-async def get_player_permissions_spec(server_name: str) -> str:
-    """Get player permissions for a server using 'data.permissions' as a list per OpenAPI spec.
-    Args:
-        server_name: Name of the server to get permissions for
-    Returns:
-        str: Formatted player permissions information or error message
-    """
-    url = f"{BEDROCK_API_BASE}/api/server/{server_name}/permissions/get"
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, timeout=30.0)
-            debug_response(response)
-            response.raise_for_status()
-            data = response.json()
-            permissions = data.get("data", {}).get("permissions", [])
-            if not permissions:
-                return f"No player permissions found for server '{server_name}'."
-            perm_list = [f"Player permissions for '{server_name}':"]
-            for perm in permissions:
-                name = perm.get("name", "Unknown")
-                xuid = perm.get("xuid", "Unknown")
-                level = perm.get("permission_level", "Unknown")
-                perm_list.append(f"  {name} (XUID: {xuid}): {level}")
-            return "\n".join(perm_list)
-        except Exception as e:
-            return f"Unable to fetch player permissions for server '{server_name}': {str(e)}"
 
 if __name__ == "__main__":
     # Initialize and run the server
