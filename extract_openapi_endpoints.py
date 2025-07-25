@@ -1,12 +1,20 @@
 import json
 import sys
-from pathlib import Path
+import httpx
 
-OPENAPI_PATH = Path("openapi.json")
+DEFAULT_SERVER = "localhost"
+DEFAULT_PORT = 11325
 
-def extract_endpoints(openapi_path):
-    with open(openapi_path, "r", encoding="utf-8") as f:
-        spec = json.load(f)
+
+def fetch_openapi_spec(server: str, port: int) -> dict:
+    """Fetch the OpenAPI specification from the running server."""
+    url = f"http://{server}:{port}/api/openapi.json"
+    response = httpx.get(url, timeout=30.0)
+    response.raise_for_status()
+    return response.json()
+
+
+def extract_endpoints(spec: dict):
     endpoints = []
     paths = spec.get("paths", {})
     for path, methods in paths.items():
@@ -25,8 +33,10 @@ def extract_endpoints(openapi_path):
     return endpoints
 
 def main():
-    openapi_path = sys.argv[1] if len(sys.argv) > 1 else OPENAPI_PATH
-    endpoints = extract_endpoints(openapi_path)
+    server = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SERVER
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else DEFAULT_PORT
+    spec = fetch_openapi_spec(server, port)
+    endpoints = extract_endpoints(spec)
     print(json.dumps(endpoints, indent=2))
 
 if __name__ == "__main__":
