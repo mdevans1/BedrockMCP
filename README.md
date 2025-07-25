@@ -197,7 +197,7 @@ chmod +x start_bedrock_mcp.sh
 To ensure all OpenAPI endpoints are mapped to MCP functions (and vice versa), this project includes automated coverage scripts:
 
 1. **Extract OpenAPI Endpoints:**
-   - `extract_openapi_endpoints.py` reads your `openapi.json` and outputs all endpoints with their `operationId`s to `openapi_endpoints.json`.
+   - `extract_openapi_endpoints.py` fetches the OpenAPI spec from your running Bedrock Server Manager instance (host and port configurable) and outputs all endpoints with their `operationId`s to `openapi_endpoints.json`.
 2. **Extract MCP Functions:**
    - `extract_mcp_functions.py` scans `bedrock_mcp_server.py` for MCP-exposed functions (decorated with `@mcp_tool_testable`) and outputs them to `mcp_functions.json`.
 3. **Run Coverage Test:**
@@ -207,11 +207,11 @@ To ensure all OpenAPI endpoints are mapped to MCP functions (and vice versa), th
 
 ### How to Use
 
-1. Ensure your OpenAPI spec is available as `openapi.json` in the project root.
-2. Run:
-   ```bash
-   python run_api_coverage_check.py
-   ```
+Run the coverage workflow and optionally specify the server host and port
+(defaults `localhost` and `11325`):
+```bash
+python run_api_coverage_check.py [server] [port]
+```
    This will:
    - Generate `openapi_endpoints.json` and `mcp_functions.json`
    - Run the coverage test and print any missing or extra mappings

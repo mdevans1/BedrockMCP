@@ -1,6 +1,5 @@
 import subprocess
 import sys
-from pathlib import Path
 
 EXTRACT_OPENAPI = [sys.executable, "extract_openapi_endpoints.py"]
 EXTRACT_MCP = [sys.executable, "extract_mcp_functions.py"]
@@ -19,8 +18,14 @@ def run_and_save(cmd, outfile):
         sys.exit(result.returncode)
 
 
+DEFAULT_SERVER = "localhost"
+DEFAULT_PORT = 11325
+
+
 def main():
-    run_and_save(EXTRACT_OPENAPI, OPENAPI_JSON)
+    server = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_SERVER
+    port = sys.argv[2] if len(sys.argv) > 2 else str(DEFAULT_PORT)
+    run_and_save(EXTRACT_OPENAPI + [server, port], OPENAPI_JSON)
     run_and_save(EXTRACT_MCP, MCP_JSON)
     print(f"\nRunning pytest on {COVERAGE_TEST}...\n")
     code = subprocess.call([sys.executable, "-m", "pytest", COVERAGE_TEST])
