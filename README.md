@@ -119,97 +119,7 @@ python bedrock_mcp_server.py --debug
 
 ## 🔧 Available Tools
 
-<details>
-<summary><strong>Server Management (8 tools)</strong></summary>
-
-- `get_servers()` - List all servers and their status
-- `get_server_status(server_name)` - Get detailed server status
-- `start_server(server_name)` - Start a specific server
-- `stop_server(server_name)` - Stop a specific server
-- `restart_server(server_name)` - Restart a specific server
-- `get_server_process_info(server_name)` - Get server process information
-- `delete_server(server_name)` - Delete a server permanently
-- `install_new_server(server_config)` - Install a new server with configuration
-
-</details>
-
-<details>
-<summary><strong>Player & Permissions (6 tools)</strong></summary>
-
-- `get_allowlist(server_name)` - Get server allowlist
-- `add_players_to_allowlist(server_name, player_names, ignores_player_limit)` - Add players to allowlist
-- `remove_from_allowlist(server_name, player_names)` - Remove players from allowlist
-- `get_player_permissions(server_name)` - View player permissions
-- `update_player_permissions(server_name, permissions)` - Update player permissions
-- `add_players_to_global_list(player_names)` - Add players to global list
-
-</details>
-
-<details>
-<summary><strong>Backup & Restore (4 tools)</strong></summary>
-
-- `backup_server(server_name, backup_type, file_to_backup)` - Create server backup
-- `restore_server(server_name, restore_type, backup_file)` - Restore from backup
-- `list_server_backups(server_name, backup_type)` - List available backups
-- `prune_backups(server_name, keep)` - Clean up old backups
-
-</details>
-
-<details>
-<summary><strong>World & Content Management (6 tools)</strong></summary>
-
-- `reset_world(server_name)` - Reset server world
-- `export_world(server_name)` - Export world files
-- `install_world(server_name, filename)` - Install custom world
-- `install_addon(server_name, filename)` - Install add-on
-- `list_available_worlds()` - List available world files
-- `list_available_addons()` - List available add-ons
-
-</details>
-
-<details>
-<summary><strong>Configuration & Properties (4 tools)</strong></summary>
-
-- `get_server_properties(server_name)` - Get server configuration
-- `update_server_properties(server_name, properties)` - Update server settings
-- `get_config_status(server_name)` - Check configuration status
-- `configure_service(server_name, service_config)` - Configure service settings
-
-</details>
-
-<details>
-<summary><strong>Plugins & Events (4 tools)</strong></summary>
-
-- `get_plugin_statuses()` - List plugin status
-- `toggle_plugin(plugin_name, action)` - Enable/disable plugins
-- `reload_all_plugins()` - Reload all plugins
-- `trigger_plugin_event(event_name, event_data)` - Trigger custom events
-
-</details>
-
-<details>
-<summary><strong>Scheduled Tasks (6 tools)</strong></summary>
-
-- `add_cron_job(server_name, job_details)` - Add cron job (Linux/macOS)
-- `modify_cron_job(server_name, job_details)` - Modify cron job
-- `delete_cron_job(server_name, job_id)` - Delete cron job
-- `add_windows_task(server_name, task_details)` - Add Windows task
-- `modify_windows_task(server_name, task_name, task_details)` - Modify Windows task
-- `delete_windows_task(server_name, task_name)` - Delete Windows task
-
-</details>
-
-<details>
-<summary><strong>System & Maintenance (6 tools)</strong></summary>
-
-- `send_command(server_name, command)` - Send console command to server
-- `get_system_info()` - Get system information
-- `get_server_version(server_name)` - Check server version
-- `validate_server(server_name)` - Validate server installation
-- `update_server(server_name, version)` - Update server to specific version
-- `prune_downloads()` - Clean up download cache
-
-</details>
+- The set of available tools and endpoints is evolving rapidly. For the most up-to-date list, please refer to the OpenAPI specification for the bedrock-server-manager or use natural language commands with your LLM assistant to discover current capabilities.
 
 ## 💬 Example Commands
 
@@ -282,11 +192,42 @@ Once configured with Claude Desktop, you can use natural language commands like:
 chmod +x start_bedrock_mcp.sh
 ```
 
+## 🧪 API Coverage Testing
+
+To ensure all OpenAPI endpoints are mapped to MCP functions (and vice versa), this project includes automated coverage scripts:
+
+1. **Extract OpenAPI Endpoints:**
+   - `extract_openapi_endpoints.py` reads your `openapi.json` and outputs all endpoints with their `operationId`s to `openapi_endpoints.json`.
+2. **Extract MCP Functions:**
+   - `extract_mcp_functions.py` scans `bedrock_mcp_server.py` for MCP-exposed functions (decorated with `@mcp_tool_testable`) and outputs them to `mcp_functions.json`.
+3. **Run Coverage Test:**
+   - `test_api_coverage.py` (run with `pytest`) compares the two lists and reports any unmapped endpoints or functions.
+4. **Automated Workflow:**
+   - `run_api_coverage_check.py` automates all the above steps.
+
+### How to Use
+
+1. Ensure your OpenAPI spec is available as `openapi.json` in the project root.
+2. Run:
+   ```bash
+   python run_api_coverage_check.py
+   ```
+   This will:
+   - Generate `openapi_endpoints.json` and `mcp_functions.json`
+   - Run the coverage test and print any missing or extra mappings
+
+### Requirements
+- `pytest` must be installed (see Dependencies below)
+
+### Purpose
+- This workflow helps keep your OpenAPI documentation and MCP implementation in sync, ensuring all endpoints are covered and documented.
+
 ## 📝 Dependencies
 
 - **mcp** (>=1.2.0) - Model Context Protocol implementation
 - **httpx** (>=0.24.0) - Modern HTTP client for API requests
 - **python-dotenv** (>=1.0.0) - Environment variable management
+- **pytest** (for API coverage testing)
 
 ## 🤝 Contributing
 
